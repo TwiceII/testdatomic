@@ -6,6 +6,7 @@
   :dependencies [[org.clojure/clojure "1.8.0"]
                  [com.datomic/datomic-pro "0.9.5561"]
                  [org.postgresql/postgresql "9.3-1102-jdbc41"]
+                 [clj-time "0.13.0"]
 ;;                  [com.datomic/clj-client "0.8.606"]
                  ]
   :main ^:skip-aot testdatomic.core

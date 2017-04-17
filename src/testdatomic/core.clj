@@ -1,5 +1,7 @@
 (ns testdatomic.core
-  (:require [datomic.api :as d])
+  (:require [datomic.api :as d]
+            [clj-time.core :as t]
+            [clj-time.coerce :as ct])
   (:gen-class))
 
 (def db-uri "datomic:sql://testdatomic?jdbc:postgresql://localhost:5432/testdatomic?user=datomic&password=datomic")
@@ -125,14 +127,102 @@ test-ents
      (group-by :dimension/group))
 ;; (deref (d/transact conn dimensions-examples))
 
+(defn jdate
+  [year month day]
+  (-> (t/date-time year month day)
+      (ct/to-date)))
+
+(->> (d/q '[:find ?e
+            :where [?e :dim-group/name]]
+          db)
+     (map first))
+
+
+(defn replace-all-keys
+  "Заменить все ключи в объекте на другие"
+  [rm x]
+  (clojure.walk/postwalk
+    (fn [el]
+      (if (and (keyword? el)
+               (contains? rm el))
+        (get rm el)
+        el))
+    x))
+
+
+(defn all-dim-groups-w-dimensions
+  []
+  (->> db
+       (d/q '[:find (pull ?e [:db/id :dim-group/name {:dimension/_group [:db/id :dimension/name]}])
+              :where [?e :dim-group/name]])
+       (map first)
+       (replace-all-keys {:db/id :id :dim-group/name :name :dimension/_group :dims :dimension/name :name})))
+
+
+(def all-dimensions-w-names
+  (->> (d/q '[:find ?e ?dim-name
+              :where [?e :dimension/name ?dim-name]]
+            db)
+       (reduce (fn [m [id name]]
+                 (assoc m id {:id id :name name}))
+               {})))
+
+all-dimensions-w-names
+
+
+(def entries
+  [{:entry/summ 5000.00
+    :entry/date (jdate 2017 4 17)
+    :entry/v-flow :inflow
+    :entry/v-type :fact
+    :entry/dims [17592186045439 17592186045442]}
+   {:entry/summ 12000.00
+    :entry/date (jdate 2017 3 17)
+    :entry/v-flow :outflow
+    :entry/v-type :fact
+    :entry/dims [17592186045441 17592186045445]}
+   {:entry/summ 500000.00
+    :entry/date (jdate 2017 5 22)
+    :entry/v-flow :inflow
+    :entry/v-type :plan
+    :entry/dims [17592186045440 17592186045444]}])
+
+;; (deref (d/transact conn entries))
+
+
+;; (deref (d/transact conn [[:db/retract 17592186045448 :entry/dims 17592186045441]
+;;                          [:db/add "datomic.tx" :db/doc "Убрали измерение из второй записи"]]))
+
+
+(defn get-all-entries
+  "Получить все записи за все время"
+  []
+  (->> (d/q '[:find (pull ?e [:db/id :entry/summ :entry/date {:entry/dims [:db/id :dimension/name]} {:entry/v-flow [:db/ident]} {:entry/v-type [:db/ident]}])
+              :where [?e :entry/summ]]
+            (d/db conn))
+       (map first)
+       (replace-all-keys {:db/id :id :entry/summ :summ :entry/date :date :entry/dims :dims
+                          :dimension/name :name :entry/v-flow :v-flow :entry/v-type :v-type})))
+
+(get-all-entries)
 
 
 
+(defn get-entries-between-dates
+  "Получить все записи между двумя датами"
+  [date-from date-to]
+  (->> (d/q '[:find (pull ?e [:db/id :entry/summ :entry/date {:entry/dims [:db/id :dimension/name]} {:entry/v-flow [:db/ident]} {:entry/v-type [:db/ident]}])
+              :in $ ?date-from ?date-to
+              :where [?e :entry/summ]
+              [?e :entry/date ?cur-date]
+              [(<= ?cur-date ?date-to)]
+              [(> ?cur-date ?date-from)]]
+            (d/db conn) date-from date-to)
+       (map first)
+       (replace-all-keys {:db/id :id :entry/summ :summ :entry/date :date :entry/dims :dims
+                          :dimension/name :name :entry/v-flow :v-flow :entry/v-type :v-type})))
 
-
-
-
-
+(get-entries-between-dates (jdate 2017 4 15) (jdate 2018 4 17))
 
 
 
